@@ -1,0 +1,132 @@
+<!DOCTYPE HTML>
+<html lang="en">
+<head>
+<title>FixedArithmetic Javadoc</title>
+<meta charset="utf-8">
+<style>
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; max-width: 900px; margin: auto; padding: 20px; }
+    h1, h2, h3 { color: #2c3e50; border-bottom: 1px solid #eee; padding-bottom: 10px; }
+    code { background-color: #f4f4f4; padding: 2px 5px; border-radius: 3px; font-family: 'Consolas', 'Courier New', monospace; }
+    pre { background-color: #f4f4f4; padding: 15px; border-left: 5px solid #3498db; overflow-x: auto; border-radius: 5px; }
+    .method { margin-bottom: 40px; border: 1px solid #ddd; padding: 20px; border-radius: 8px; }
+    .method-name { font-size: 1.2em; font-weight: bold; color: #d35400; }
+    .tag { font-weight: bold; color: #7f8c8d; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { text-align: left; padding: 10px; border-bottom: 1px solid #eee; }
+    th { background-color: #f9f9f9; }
+</style>
+</head>
+<body>
+
+<h1>Class FixedArithmetic</h1>
+<p><strong>Package:</strong> default</p>
+<p><strong>Author:</strong> Mario Gianota</p>
+<hr>
+
+<h2>Overview</h2>
+<p>
+    <code>FixedArithmetic</code> is a specialized utility class designed for high-precision, deterministic arithmetic using 
+    <strong>fixed-point representation</strong>. It is engineered specifically for environments like scientific computing and 
+    quantitative trading where floating-point non-determinism (IEEE-754) is unacceptable. 
+</p>
+<p>
+    The arithmetic core is unique in that it performs addition, subtraction, multiplication, and division <strong>without 
+    using the CPU's native multiplication, division, or modulo operators</strong>. Instead, it relies solely on repeated 
+    integer addition and subtraction to ensure identical results across different hardware architectures.
+</p>
+
+<h3>Example Usage</h3>
+<pre>
+// Creating values from strings or integers
+FixedArithmetic price = FixedArithmetic.of("100.50");
+FixedArithmetic quantity = FixedArithmetic.of(5);
+
+// Chained operations: (7 + 3) * (10 - 4) / 5
+FixedArithmetic result = FixedArithmetic.of(7)
+    .add(FixedArithmetic.of(3))
+    .multiply(FixedArithmetic.of(10).subtract(FixedArithmetic.of(4)))
+    .divide(FixedArithmetic.of(5));
+
+System.out.println("Result: " + result.toString()); // Output: 12.0
+</pre>
+
+<hr>
+
+<h2>Field Summary</h2>
+<table>
+    <tr><th>Type</th><th>Field</th><th>Description</th></tr>
+    <tr>
+        <td><code>static int</code></td>
+        <td><code>PRECISION</code></td>
+        <td>The number of decimal fractional digits preserved (default is 9).</td>
+    </tr>
+    <tr>
+        <td><code>static long</code></td>
+        <td><code>SCALE</code></td>
+        <td>The internal scaling factor (10^PRECISION), calculated via repeated addition.</td>
+    </tr>
+</table>
+
+<hr>
+
+<h2>Method Summary</h2>
+
+<div class="method">
+    <div class="method-name">public static FixedArithmetic of(long integerValue)</div>
+    <p>Factory method to construct a new <code>FixedArithmetic</code> instance from a plain long integer.</p>
+    <p><span class="tag">Parameters:</span> <code>integerValue</code> - The whole number to represent.</p>
+</div>
+
+<div class="method">
+    <div class="method-name">public static FixedArithmetic of(String decimal)</div>
+    <p>
+        Constructs an instance from a decimal string (e.g., "3.14"). This method parses the string character-by-character 
+        using only integer addition and subtraction, ensuring no floating-point "poisoning" occurs during construction.
+    </p>
+    <p><span class="tag">Throws:</span> <code>IllegalArgumentException</code> if the string format is invalid or has multiple decimal points.</p>
+</div>
+
+<div class="method">
+    <div class="method-name">public FixedArithmetic add(FixedArithmetic other)</div>
+    <p>Returns a new instance representing the sum <code>(this + other)</code>.</p>
+</div>
+
+<div class="method">
+    <div class="method-name">public FixedArithmetic subtract(FixedArithmetic other)</div>
+    <p>Returns a new instance representing the difference <code>(this - other)</code>.</p>
+</div>
+
+<div class="method">
+    <div class="method-name">public FixedArithmetic multiply(FixedArithmetic other)</div>
+    <p>
+        Returns a new instance representing the product <code>(this * other)</code>. It utilizes a <strong>Russian Peasant 
+        (binary) multiplication</strong> algorithm built entirely from addition to maintain hardware-independent determinism.
+    </p>
+</div>
+
+<div class="method">
+    <div class="method-name">public FixedArithmetic divide(FixedArithmetic other)</div>
+    <p>
+        Returns a new instance representing the quotient <code>(this / other)</code>. It employs a <strong>long-division-by-repeated-subtraction</strong> 
+        algorithm, processing the quotient digit-by-digit to ensure precision.
+    </p>
+    <p><span class="tag">Throws:</span> <code>ArithmeticException</code> on division by zero.</p>
+</div>
+
+<div class="method">
+    <div class="method-name">public long integerPart()</div>
+    <p>Returns the whole number part of the stored value, truncated toward zero.</p>
+</div>
+
+<div class="method">
+    <div class="method-name">public long remainder()</div>
+    <p>Returns the fractional remainder in units of 10^-PRECISION.</p>
+</div>
+
+<div class="method">
+    <div class="method-name">public String toString()</div>
+    <p>Returns a human-readable fixed-point string representation of the value, with trailing zeros trimmed for clarity.</p>
+</div>
+
+</body>
+</html>
