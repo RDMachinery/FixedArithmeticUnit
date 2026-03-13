@@ -473,6 +473,27 @@ public class FixedArithmetic {
              FixedArithmetic.of("1.23").add(FixedArithmetic.of("4.56")));
         demo("of(\"3.14\")*of(\"2\")",
              FixedArithmetic.of("3.14").multiply(FixedArithmetic.of("2")));
+
+        System.out.println("\nMultiply with decimals:");
+        demo("4.0 * 2.5",       FixedArithmetic.of("4.0").multiply(FixedArithmetic.of("2.5")));
+        demo("0.5 * 0.5",       FixedArithmetic.of("0.5").multiply(FixedArithmetic.of("0.5")));
+        demo("1.5 * 1.5",       FixedArithmetic.of("1.5").multiply(FixedArithmetic.of("1.5")));
+        demo("2.5 * 4.0",       FixedArithmetic.of("2.5").multiply(FixedArithmetic.of("4.0")));
+        demo("1.25 * 0.8",      FixedArithmetic.of("1.25").multiply(FixedArithmetic.of("0.8")));
+        demo("3.0 * 0.333333333",
+             FixedArithmetic.of("3.0").multiply(FixedArithmetic.of("0.333333333")));
+        demo("-2.5 * 1.5",      FixedArithmetic.of("-2.5").multiply(FixedArithmetic.of("1.5")));
+
+        System.out.println("\nDivide with decimals:");
+        demo("1.0 / 0.5",       FixedArithmetic.of("1.0").divide(FixedArithmetic.of("0.5")));
+        demo("1.0 / 0.25",      FixedArithmetic.of("1.0").divide(FixedArithmetic.of("0.25")));
+        demo("3.0 / 1.5",       FixedArithmetic.of("3.0").divide(FixedArithmetic.of("1.5")));
+        demo("2.5 / 1.25",      FixedArithmetic.of("2.5").divide(FixedArithmetic.of("1.25")));
+        demo("7.5 / 2.5",       FixedArithmetic.of("7.5").divide(FixedArithmetic.of("2.5")));
+        demo("(7/3) / (2/3)",
+             FixedArithmetic.of("7.0").divide(FixedArithmetic.of("3.0"))
+                            .divide(FixedArithmetic.of("2.0").divide(FixedArithmetic.of("3.0"))));
+        demo("-3.6 / 1.2",      FixedArithmetic.of("-3.6").divide(FixedArithmetic.of("1.2")));
     }
 
     private static void demo(String expr, FixedArithmetic result) {
