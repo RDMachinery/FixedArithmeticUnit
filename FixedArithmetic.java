@@ -260,15 +260,37 @@ public class FixedArithmetic {
         regU = other.regA;
         if (regU < 0) { regU = -regU; regS = -regS; }
 
-        // ── recover the raw (unscaled) denominator ────────────────────────
-        //    regU is q×SCALE; we need plain q so that:
-        //      result_scaled = (p×SCALE) / q  =  regT / (regU/SCALE)
-        //    Multiplying regT by SCALE instead would produce p×SCALE² which
-        //    overflows a long for any |p| >= 10 (10 × 10^18 > MAX_LONG).
-        regU = longDivide(regU, SCALE);
+        // ── two-step long division: floor(regT × SCALE / regU) ────────────
+        //
+        //  We need:  result_scaled = floor(p/q × SCALE)
+        //                          = floor(A × SCALE / B)
+        //            where A = regT = p×SCALE,  B = regU = q×SCALE.
+        //
+        //  We cannot compute A×SCALE directly — it overflows a long for
+        //  any |p| >= 10.  The previous approach stripped SCALE from B
+        //  first (regU = longDivide(regU, SCALE)), but that computes
+        //  floor(q) and silently discards q's fractional part, causing:
+        //    • ArithmeticException (zero divisor) when 0 < q < 1
+        //    • Wrong result when q has a fractional part > 0 (e.g. 1.5→1)
+        //
+        //  Correct approach — decompose without overflow:
+        //
+        //    floor(A×S / B)  =  floor(A/B)×S  +  floor((A mod B)×S / B)
+        //
+        //  where S = SCALE.  The remainder (A mod B) < B, so
+        //  (A mod B)×S < B×S.  For all practical inputs B ≤ SCALE×10⁹,
+        //  giving (A mod B) < SCALE and (A mod B)×S < SCALE² = 10¹⁸ < MAX_LONG.
 
-        // ── long division: (p×SCALE) / q  via repeated subtraction ───────
-        regR = longDivide(regT, regU);
+        // Step 1 — integer part of the true quotient
+        long qInt = longDivide(regT, regU);                      // floor(A/B)
+        long rem  = regT - russianPeasant(qInt, regU);           // A mod B
+
+        // Step 2 — fractional part: scale the remainder, then divide again
+        long remScaled = russianPeasant(rem, SCALE);             // (A mod B) × S
+        long qFrac     = longDivide(remScaled, regU);            // floor(rem×S / B)
+
+        // Combine: result = qInt×SCALE + qFrac
+        regR = russianPeasant(qInt, SCALE) + qFrac;
 
         // ── reapply sign ───────────────────────────────────────────────────
         if (regS < 0) regR = -regR;
