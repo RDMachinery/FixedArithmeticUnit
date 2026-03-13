@@ -6,7 +6,7 @@
 
 ---
 
-`java.lang.BigDecimal` is Java's standard answer to the imprecision of
+`java.math.BigDecimal` is Java's standard answer to the imprecision of
 `double`. It is widely used, widely trusted, and the source of a category of
 production bugs that are difficult to detect, difficult to reproduce, and
 sometimes financially consequential. This article documents those failure modes
