@@ -1,4 +1,4 @@
-# The Risks of `java.lang.BigDecimal` in Production Arithmetic
+# The Risks of `java.math.BigDecimal` in Production Arithmetic
 
 > *"A ship in harbour is safe — but that is not what ships are for."*
 >
