@@ -3,7 +3,6 @@
 A Java class that performs **addition, subtraction, multiplication, and division**
 of integer values using **fixed-point representation**, carrying all remainders
 exactly and eliminating the rounding errors inherent to IEEE 754 floating-point.
-For certain common use cases, this class is superior to java.lang.BigDecimal.
 
 Every computation is reduced to integer addition and subtraction on a small set
 of private registers — no `*`, `/`, or `%` operators appear anywhere in the
@@ -72,15 +71,20 @@ Because both operands share the same denominator `SCALE`, the result is exact.
 
 ### Multiplication — Russian-Peasant Algorithm
 
-To multiply two scaled values `A` and `B`:
+Given two scaled inputs `regT = p × SCALE` and `regU = q × SCALE`, a naïve
+product `regT × regU = p×q×SCALE²` would overflow a `long` for `|p×q| ≥ 10`.
+The implementation therefore first recovers the raw integer `q` by stripping
+`SCALE` from one operand, then applies the **Russian-peasant (binary)**
+algorithm to `(p×SCALE, q)`:
 
 ```
-real result  =  (A × B)  /  SCALE
+regU  ←  longDivide(regU, SCALE)        // regU is now raw integer q
+regR  ←  russianPeasant(regT, regU)     // p×SCALE × q  =  p×q×SCALE  ✓
 ```
 
-The product `A × B` is computed by the **Russian-peasant (binary)** algorithm,
-which replaces every multiplication step with a doubling (addition to itself)
-and a bit-test:
+The result `p×q×SCALE` is already in correctly scaled form — no subsequent
+division by `SCALE` is required. The Russian-peasant algorithm replaces every
+multiplication step with a doubling (addition to itself) and a bit-test:
 
 ```java
 while (tb > 0) {
@@ -90,19 +94,22 @@ while (tb > 0) {
 }
 ```
 
-Division by `SCALE` is performed by the same binary long-division routine
-described below.
+No `*`, `/`, or `%` operator is used at any step.
 
 ### Division — Binary Long Division
 
-To divide scaled value `A` by scaled value `B`:
+Given two scaled inputs `regT = p × SCALE` and `regU = q × SCALE`, the
+implementation first recovers the raw integer `q` by stripping `SCALE` from
+the denominator, then divides the scaled numerator directly:
 
 ```
-real result  =  A / B   stored as  (A × SCALE) / B
+regU  ←  longDivide(regU, SCALE)        // regU is now raw integer q
+regR  ←  longDivide(regT, regU)         // floor(p×SCALE / q) — correctly scaled result
 ```
 
-The extra `× SCALE` keeps the result in scaled form. The quotient is extracted
-digit-by-bit using only subtraction:
+This keeps intermediate values within `long` range (max `|p| × SCALE` rather
+than the overflowing `|p| × SCALE²` a naïve approach would produce). The
+quotient is extracted digit-by-bit using only subtraction:
 
 ```java
 // Phase 1: find highest power-of-2 multiple of divisor ≤ dividend
@@ -278,31 +285,55 @@ two-operand sum.
 
 ### 6. Exact multiplication via the Russian-peasant algorithm
 
-**Theorem 4.** *The Russian-peasant routine `russianPeasant(a, b)` returns
-the exact product `a × b` for all non-negative `long` values, using only
-addition and bit-testing.*
+**Theorem 4.** *`FixedArithmetic.multiply` returns the exact scaled product
+`p × q × SCALE` for integer inputs `p` and `q`, using only addition,
+subtraction, and bit-testing, with no intermediate overflow.*
 
 **Proof.**  
-The algorithm maintains the loop invariant:
+Let the two stored values be `regT = p × SCALE` and `regU = q × SCALE`.
+
+**Step 1 — strip SCALE from the denominator.**  
+The implementation first computes:
 
 ```
-result + ta × tb  =  a × b          (constant throughout)
+regU  ←  longDivide(q × SCALE, SCALE)  =  q
 ```
 
-**Base case:** before the loop, `result = 0`, `ta = a`, `tb = b`, so
-`0 + a × b = a × b`. ✓
+By Theorem 5, `longDivide` is exact, so `regU` now holds the raw integer `q`
+with no error.
+
+**Step 2 — Russian-peasant multiply on `(p×SCALE, q)`.**  
+The algorithm is called with `ta = p × SCALE` and `tb = q`. It maintains the
+loop invariant:
+
+```
+result + ta × tb  =  p × SCALE × q  =  p×q×SCALE     (constant throughout)
+```
+
+**Base case:** before the loop, `result = 0`, `ta = p×SCALE`, `tb = q`, so
+`0 + p×SCALE × q = p×q×SCALE`. ✓
 
 **Inductive step:** At each iteration:
 
-- If `tb` is odd: `result' = result + ta`, `ta' = 2 × ta`, `tb' = (tb−1)/2`.
-  Then `result' + ta' × tb' = (result + ta) + 2ta × (tb−1)/2
-  = result + ta + ta(tb−1) = result + ta × tb`. ✓
-- If `tb` is even: `result' = result`, `ta' = 2 × ta`, `tb' = tb/2`.
+- If `tb` is odd: `result' = result + ta`, `ta' = 2 × ta`, `tb' = (tb−1)/2`.  
+  Then `result' + ta' × tb'`  
+  `= (result + ta) + 2ta × (tb−1)/2`  
+  `= result + ta + ta(tb−1)`  
+  `= result + ta × tb`. ✓
+- If `tb` is even: `result' = result`, `ta' = 2 × ta`, `tb' = tb/2`.  
   Then `result' + ta' × tb' = result + 2ta × (tb/2) = result + ta × tb`. ✓
 
-**Termination:** `tb` strictly decreases each iteration (`tb' < tb` since
-`tb >>> 1 < tb` for `tb > 0`), so the loop terminates when `tb = 0`, at
-which point the invariant gives `result = a × b`. ∎
+**Termination:** `tb` strictly decreases each iteration (`tb >>> 1 < tb` for
+`tb > 0`), so the loop terminates when `tb = 0`, at which point the invariant
+gives `result = p×q×SCALE`.
+
+**No overflow:** the largest intermediate value of `ta` is bounded by
+`p × SCALE × q` (it doubles at most `floor(log₂ q)` times before `tb`
+reaches 0). This stays within `long` range provided `|p × q| < 2^63 / SCALE
+≈ 9.2 × 10⁹`.
+
+**Result:** `regR = p×q×SCALE`, which is the correct scaled representation of
+the real value `p × q`. No division by `SCALE` is required. ∎
 
 ---
 
@@ -338,11 +369,12 @@ Both `shifted` and `bit` are halved each iteration, so after `floor(log2
 
 ### 8. Precision of division in FixedArithmetic vs. double
 
-For integer inputs `p` and `q`, `FixedArithmetic.divide` computes:
+For integer inputs `p` and `q`, `FixedArithmetic.divide` receives
+`regT = p × SCALE` and strips `SCALE` from the denominator before dividing:
 
 ```
-regR  =  floor( p × SCALE^2  /  q × SCALE )
-       =  floor( p × SCALE   /  q )
+regU  ←  longDivide(q × SCALE, SCALE)  =  q          (exact, by Theorem 5)
+regR  ←  longDivide(p × SCALE, q)      =  floor( p × SCALE / q )
 ```
 
 which is the exact integer `floor(p / q × 10^9)`. The true value is
