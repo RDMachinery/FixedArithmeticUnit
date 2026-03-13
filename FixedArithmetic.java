@@ -22,6 +22,8 @@
  *   add / subtract – trivial scaled-integer arithmetic (one add/sub).
  *   multiply       – Russian-peasant / binary doubling built from adds only.
  *   divide         – long-division-by-repeated-subtraction, digit by digit.
+ *
+ * @author Mario Gianota (mariogianota@protonmail.com) Friday 13 March, 2026
  */
 public class FixedArithmetic {
 
