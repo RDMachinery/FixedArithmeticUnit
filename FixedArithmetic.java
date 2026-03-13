@@ -104,25 +104,42 @@ public class FixedArithmetic {
         regU = other.regA;
         if (regU < 0) { regU = -regU; regS = -regS; }
 
-        // ── strip SCALE from regU before multiplying ──────────────────────
-        //    Both regT and regU enter as p*SCALE and q*SCALE.
-        //    A naive regT * regU = p*q*SCALE² overflows for |p| or |q| >= 5
-        //    (5e9 * 5e9 = 25e18 > MAX_LONG ≈ 9.2e18).
-        //    Recover raw q = regU / SCALE first; then:
-        //      regT * q = p*SCALE * q = p*q*SCALE — the correct scaled result,
-        //    no post-division by SCALE needed, and the intermediate value
-        //    stays within long range for |p*q| < 9.2e9.
-        regU = longDivide(regU, SCALE);   // regU is now raw integer q
+        // ── split-integer multiply ─────────────────────────────────────────
+        //  Let regT = T_int*SCALE + T_frac  and  regU = U_int*SCALE + U_frac.
+        //  Then:
+        //    regT * regU / SCALE
+        //      = (T_int*SCALE + T_frac)(U_int*SCALE + U_frac) / SCALE
+        //      = T_int*U_int*SCALE + T_int*U_frac + T_frac*U_int
+        //        + floor(T_frac*U_frac / SCALE)
+        //
+        //  Each term fits in a long provided |T_int*U_int| < MAX_LONG/SCALE
+        //  i.e. the integer parts of both operands are < ~96,038.
+        //  Stripping SCALE from only one operand (the previous approach) silently
+        //  discards any fractional part of that operand, giving wrong results
+        //  whenever either input has a non-zero fractional component.
 
-        // ── Russian-peasant multiply: regR = regT * regU ──────────────────
-        //    invariant: result so far  = regR + regT * regU
-        regR = 0;
-        while (regU > 0) {
-            if (isOdd(regU)) regR = regR + regT;
-            regT = regT + regT;   // double T  (shift left)
-            regU = halve(regU);   // halve  U  (shift right)
-        }
-        // regR = p*q*SCALE — already the correct scaled result
+        // Decompose regT into integer and fractional parts (addition/subtraction only)
+        long T_int  = longDivide(regT, SCALE);
+        long T_frac = regT - russianPeasant(T_int, SCALE);   // regT mod SCALE
+
+        // Decompose regU into integer and fractional parts
+        long U_int  = longDivide(regU, SCALE);
+        long U_frac = regU - russianPeasant(U_int, SCALE);   // regU mod SCALE
+
+        // term1 = T_int * U_int * SCALE
+        regC = russianPeasant(T_int, U_int);
+        long term1 = russianPeasant(regC, SCALE);
+
+        // term2 = T_int * U_frac
+        long term2 = russianPeasant(T_int, U_frac);
+
+        // term3 = T_frac * U_int
+        long term3 = russianPeasant(T_frac, U_int);
+
+        // term4 = floor(T_frac * U_frac / SCALE)
+        long term4 = longDivide(russianPeasant(T_frac, U_frac), SCALE);
+
+        regR = term1 + term2 + term3 + term4;
 
         // ── reapply sign ───────────────────────────────────────────────────
         if (regS < 0) regR = -regR;
