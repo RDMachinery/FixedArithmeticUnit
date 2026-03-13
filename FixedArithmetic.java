@@ -72,6 +72,96 @@ public class FixedArithmetic {
         return new FixedArithmetic(integerValue);
     }
 
+    /**
+     * Construct from a decimal string such as "3.14", "-0.5", "100", or
+     * "1.987654321".  Up to PRECISION (9) fractional digits are accepted;
+     * additional digits beyond the ninth are truncated toward zero.
+     *
+     * Parsing uses only addition, subtraction, and the class's own
+     * russianPeasant / longDivide helpers — no floating-point conversion,
+     * no Double.parseDouble, and no BigDecimal.
+     *
+     * Algorithm
+     * ─────────
+     * 1. Strip an optional leading sign character.
+     * 2. Walk each character, building the integer part digit-by-digit:
+     *      intPart = intPart × 10 + digit   (× 10 via russianPeasant)
+     * 3. After the decimal point, do the same for the fractional digits,
+     *    counting how many (d) there are.
+     * 4. Combine:
+     *      scaled = intPart × SCALE  +  floor(fracPart × SCALE / 10^d)
+     *    Both multiplications use russianPeasant; the division uses longDivide.
+     *
+     * @param  decimal  a decimal number in optional-sign + digits + optional
+     *                  (dot + digits) format, e.g. "3.14", "-0.5", "100"
+     * @return          a new FixedArithmetic representing the parsed value
+     * @throws IllegalArgumentException if the string is empty, contains
+     *                  non-digit characters (other than a leading sign or one
+     *                  decimal point), or has more than one decimal point
+     */
+    public static FixedArithmetic of(String decimal) {
+        if (decimal == null || decimal.isEmpty())
+            throw new IllegalArgumentException("Input string must not be empty");
+
+        // ── Step 1: sign ──────────────────────────────────────────────────
+        int    i        = 0;
+        long   signum   = 1;
+        if (decimal.charAt(0) == '-') { signum = -1; i = i + 1; }
+        else if (decimal.charAt(0) == '+') {          i = i + 1; }
+
+        // ── Step 2 & 3: parse integer and fractional digit runs ───────────
+        // TEN built by addition so no literal multiply is used
+        long ten = 0;
+        for (int k = 0; k < 10; k++) ten = ten + 1;   // ten == 10
+
+        long intPart    = 0;
+        long fracPart   = 0;
+        long fracDigits = 0;
+        boolean seenDot = false;
+
+        while (i < decimal.length()) {
+            char c = decimal.charAt(i);
+            if (c == '.') {
+                if (seenDot)
+                    throw new IllegalArgumentException(
+                        "Multiple decimal points in \"" + decimal + "\"");
+                seenDot = true;
+            } else if (c >= '0' && c <= '9') {
+                long digit = c - '0';
+                if (!seenDot) {
+                    intPart  = russianPeasant(intPart, ten) + digit;
+                } else {
+                    // Accept at most PRECISION fractional digits; ignore the rest
+                    if (fracDigits < PRECISION) {
+                        fracPart   = russianPeasant(fracPart, ten) + digit;
+                        fracDigits = fracDigits + 1;
+                    }
+                }
+            } else {
+                throw new IllegalArgumentException(
+                    "Invalid character '" + c + "' in \"" + decimal + "\"");
+            }
+            i = i + 1;
+        }
+
+        // ── Step 4: assemble scaled value ─────────────────────────────────
+        // scaled = intPart × SCALE  +  floor(fracPart × SCALE / 10^fracDigits)
+        long scaled = russianPeasant(intPart, SCALE);
+
+        if (fracDigits > 0) {
+            // Compute 10^fracDigits via repeated russianPeasant multiply
+            long tenPow = 1;
+            for (long k = 0; k < fracDigits; k++) tenPow = russianPeasant(tenPow, ten);
+
+            // fracPart × SCALE, then divide by 10^fracDigits
+            long fracScaled      = russianPeasant(fracPart, SCALE);
+            long fracContribution = longDivide(fracScaled, tenPow);
+            scaled = scaled + fracContribution;
+        }
+
+        return new FixedArithmetic(scaled * signum, true);
+    }
+
     // ── public arithmetic API ─────────────────────────────────────────────────
 
     /** Return a new FixedArithmetic equal to (this + other). */
@@ -225,7 +315,7 @@ public class FixedArithmetic {
     // ── private helpers (addition/subtraction only) ───────────────────────────
 
     /** Scale an integer up: n * SCALE, using repeated addition. */
-    private long scaleUp(long n) {
+    private static long scaleUp(long n) {
         return multiplyByScale(n);
     }
 
@@ -233,7 +323,7 @@ public class FixedArithmetic {
      * Multiply a non-negative value by SCALE using Russian-peasant addition.
      * No * operator used.
      */
-    private long multiplyByScale(long n) {
+    private static long multiplyByScale(long n) {
         return russianPeasant(abs(n), SCALE) * sign(n);
     }
 
@@ -241,7 +331,7 @@ public class FixedArithmetic {
      * Divide a non-negative value by SCALE using repeated subtraction
      * (optimised: counts how many times SCALE fits, using doubling to speed up).
      */
-    private long divideByScale(long n) {
+    private static long divideByScale(long n) {
         return longDivide(abs(n), SCALE) * sign(n);
     }
 
@@ -249,7 +339,7 @@ public class FixedArithmetic {
      * Russian-peasant (binary) multiplication: a × b, both non-negative.
      * Uses only addition.
      */
-    private long russianPeasant(long a, long b) {
+    private static long russianPeasant(long a, long b) {
         long result = 0;
         long ta = a, tb = b;
         while (tb > 0) {
@@ -269,7 +359,7 @@ public class FixedArithmetic {
      *  2. Subtract it, record the bit in the quotient.
      *  3. Repeat for smaller multiples.
      */
-    private long longDivide(long dividend, long divisor) {
+    private static long longDivide(long dividend, long divisor) {
         if (divisor == 0) throw new ArithmeticException("Division by zero");
         long quotient = 0;
         long rem      = dividend;
@@ -350,6 +440,17 @@ public class FixedArithmetic {
         System.out.printf("  integerPart() = %d%n", oneThird.integerPart());
         System.out.printf("  remainder()   = %d  (× 10^-%d)%n",
                           oneThird.remainder(), PRECISION);
+
+        System.out.println("\nof(String) demo:");
+        demo("of(\"3.14\")",         FixedArithmetic.of("3.14"));
+        demo("of(\"-0.5\")",         FixedArithmetic.of("-0.5"));
+        demo("of(\"100.42\")",       FixedArithmetic.of("100.42"));
+        demo("of(\"0.333333333\")",  FixedArithmetic.of("0.333333333"));
+        demo("of(\"-1.987654321\")", FixedArithmetic.of("-1.987654321"));
+        demo("of(\"1.23\")+of(\"4.56\")",
+             FixedArithmetic.of("1.23").add(FixedArithmetic.of("4.56")));
+        demo("of(\"3.14\")*of(\"2\")",
+             FixedArithmetic.of("3.14").multiply(FixedArithmetic.of("2")));
     }
 
     private static void demo(String expr, FixedArithmetic result) {
