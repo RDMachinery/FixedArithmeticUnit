@@ -69,22 +69,29 @@ subtract(A, B) →  regR = regA − regB
 
 Because both operands share the same denominator `SCALE`, the result is exact.
 
-### Multiplication — Russian-Peasant Algorithm
+### Multiplication — Split-Integer Algorithm
 
-Given two scaled inputs `regT = p × SCALE` and `regU = q × SCALE`, a naïve
-product `regT × regU = p×q×SCALE²` would overflow a `long` for `|p×q| ≥ 10`.
-The implementation therefore first recovers the raw integer `q` by stripping
-`SCALE` from one operand, then applies the **Russian-peasant (binary)**
-algorithm to `(p×SCALE, q)`:
+Given two scaled inputs `regT = p × SCALE` and `regU = q × SCALE`, the
+implementation decomposes each operand into its integer and fractional parts
+and computes four partial products:
 
 ```
-regU  ←  longDivide(regU, SCALE)        // regU is now raw integer q
-regR  ←  russianPeasant(regT, regU)     // p×SCALE × q  =  p×q×SCALE  ✓
+T_int  = longDivide(regT, SCALE)          // integer part of p
+T_frac = regT − T_int × SCALE             // fractional part of p, scaled
+
+U_int  = longDivide(regU, SCALE)          // integer part of q
+U_frac = regU − U_int × SCALE             // fractional part of q, scaled
+
+term1  = (T_int × U_int) × SCALE          // integer × integer, re-scaled
+term2  = T_int × U_frac                   // integer × q-fraction
+term3  = T_frac × U_int                   // p-fraction × integer
+term4  = floor(T_frac × U_frac / SCALE)   // fraction × fraction, descaled
+
+regR   = term1 + term2 + term3 + term4
 ```
 
-The result `p×q×SCALE` is already in correctly scaled form — no subsequent
-division by `SCALE` is required. The Russian-peasant algorithm replaces every
-multiplication step with a doubling (addition to itself) and a bit-test:
+All multiplications within each term use the **Russian-peasant (binary)**
+algorithm, which replaces every multiply with a doubling and a bit-test:
 
 ```java
 while (tb > 0) {
@@ -94,22 +101,36 @@ while (tb > 0) {
 }
 ```
 
-No `*`, `/`, or `%` operator is used at any step.
+No `*`, `/`, or `%` operator is used at any step. Stripping `SCALE` from only
+one operand (the previous approach) silently discarded the fractional part of
+that operand, producing wrong results whenever either input was non-integer.
 
-### Division — Binary Long Division
+### Division — Two-Step Binary Long Division
 
 Given two scaled inputs `regT = p × SCALE` and `regU = q × SCALE`, the
-implementation first recovers the raw integer `q` by stripping `SCALE` from
-the denominator, then divides the scaled numerator directly:
+result must be `floor(p/q × SCALE)`. Computing this directly as
+`longDivide(regT × SCALE, regU)` would overflow because `regT × SCALE` can
+reach `p × SCALE²`. Stripping `SCALE` from `regU` first computes `floor(q)`,
+which silently discards any fractional part of the denominator.
+
+The correct approach decomposes without overflow using the identity:
 
 ```
-regU  ←  longDivide(regU, SCALE)        // regU is now raw integer q
-regR  ←  longDivide(regT, regU)         // floor(p×SCALE / q) — correctly scaled result
+floor(A × S / B)  =  floor(A / B) × S  +  floor((A mod B) × S / B)
+
+where  A = regT = p×SCALE,  B = regU = q×SCALE,  S = SCALE
 ```
 
-This keeps intermediate values within `long` range (max `|p| × SCALE` rather
-than the overflowing `|p| × SCALE²` a naïve approach would produce). The
-quotient is extracted digit-by-bit using only subtraction:
+```
+qInt  ←  longDivide(regT, regU)               // floor(A / B) = floor(p/q)
+rem   ←  regT − qInt × regU                   // A mod B
+qFrac ←  longDivide(rem × SCALE, regU)        // floor((A mod B) × S / B)
+regR  ←  qInt × SCALE + qFrac
+```
+
+The intermediate `rem × SCALE` cannot overflow because `rem < regU`, and for
+all practical inputs `rem < SCALE`, keeping `rem × SCALE < SCALE² = 10¹⁸ < MAX_LONG`.
+The quotient at each step is extracted using only subtraction:
 
 ```java
 // Phase 1: find highest power-of-2 multiple of divisor ≤ dividend
@@ -166,6 +187,13 @@ FixedArithmetic.of(7)
     .divide(FixedArithmetic.of(5))
     .toString();
 // → "12.0"   (exact)
+
+// Decimal string input
+FixedArithmetic.of("3.14").multiply(FixedArithmetic.of("2.0")).toString();
+// → "6.28"   (exact)
+
+FixedArithmetic.of("2.5").divide(FixedArithmetic.of("1.25")).toString();
+// → "2.0"    (exact — fractional denominator handled correctly)
 ```
 
 ---
@@ -283,57 +311,72 @@ two-operand sum.
 
 ---
 
-### 6. Exact multiplication via the Russian-peasant algorithm
+### 6. Exact multiplication via the split-integer algorithm
 
-**Theorem 4.** *`FixedArithmetic.multiply` returns the exact scaled product
-`p × q × SCALE` for integer inputs `p` and `q`, using only addition,
-subtraction, and bit-testing, with no intermediate overflow.*
+**Theorem 4.** *`FixedArithmetic.multiply` returns the scaled product
+`floor(p × q × SCALE)` for any rational inputs `p` and `q` representable as
+`FixedArithmetic` values, using only addition, subtraction, and bit-testing,
+with no intermediate overflow for `|p_int × q_int| < 2^63 / SCALE ≈ 9.2 × 10⁹`
+(where `p_int` and `q_int` denote the integer parts of `p` and `q`).*
 
 **Proof.**  
-Let the two stored values be `regT = p × SCALE` and `regU = q × SCALE`.
-
-**Step 1 — strip SCALE from the denominator.**  
-The implementation first computes:
+Let `regT = p × SCALE` and `regU = q × SCALE`. Write:
 
 ```
-regU  ←  longDivide(q × SCALE, SCALE)  =  q
+regT  =  T_int × SCALE + T_frac      (T_int = floor(p),  T_frac = p×SCALE mod SCALE)
+regU  =  U_int × SCALE + U_frac      (U_int = floor(q),  U_frac = q×SCALE mod SCALE)
 ```
 
-By Theorem 5, `longDivide` is exact, so `regU` now holds the raw integer `q`
-with no error.
-
-**Step 2 — Russian-peasant multiply on `(p×SCALE, q)`.**  
-The algorithm is called with `ta = p × SCALE` and `tb = q`. It maintains the
-loop invariant:
+Both decompositions are computed exactly by `longDivide` (Theorem 5) and
+subtraction. The desired result is:
 
 ```
-result + ta × tb  =  p × SCALE × q  =  p×q×SCALE     (constant throughout)
+floor(p × q × SCALE)
+  =  floor( (T_int + T_frac/SCALE)(U_int + U_frac/SCALE) × SCALE )
+  =  T_int×U_int×SCALE  +  T_int×U_frac  +  T_frac×U_int
+       +  floor(T_frac × U_frac / SCALE)
 ```
 
-**Base case:** before the loop, `result = 0`, `ta = p×SCALE`, `tb = q`, so
-`0 + p×SCALE × q = p×q×SCALE`. ✓
+The four terms correspond exactly to the four partial products computed by
+the implementation. Each partial product is computed by `russianPeasant`,
+which maintains the invariant `result + ta × tb = constant` throughout (see
+§6 loop-invariant argument below), so each term is exact.
 
-**Inductive step:** At each iteration:
+**Loop invariant for `russianPeasant(a, b)`.** The algorithm is called with
+`ta = a`, `tb = b`, `result = 0` and maintains:
 
-- If `tb` is odd: `result' = result + ta`, `ta' = 2 × ta`, `tb' = (tb−1)/2`.  
-  Then `result' + ta' × tb'`  
-  `= (result + ta) + 2ta × (tb−1)/2`  
-  `= result + ta + ta(tb−1)`  
-  `= result + ta × tb`. ✓
-- If `tb` is even: `result' = result`, `ta' = 2 × ta`, `tb' = tb/2`.  
-  Then `result' + ta' × tb' = result + 2ta × (tb/2) = result + ta × tb`. ✓
+```
+result + ta × tb  =  a × b     (constant throughout)
+```
 
-**Termination:** `tb` strictly decreases each iteration (`tb >>> 1 < tb` for
-`tb > 0`), so the loop terminates when `tb = 0`, at which point the invariant
-gives `result = p×q×SCALE`.
+*Base case:* `0 + a × b = a × b`. ✓  
+*Inductive step (tb odd):* `result' = result + ta`, `ta' = 2ta`, `tb' = (tb−1)/2`.  
+`result' + ta'×tb' = (result+ta) + 2ta×(tb−1)/2 = result + ta + ta(tb−1) = result + ta×tb`. ✓  
+*Inductive step (tb even):* `result' = result`, `ta' = 2ta`, `tb' = tb/2`.  
+`result' + ta'×tb' = result + 2ta×(tb/2) = result + ta×tb`. ✓  
+*Termination:* `tb >>> 1 < tb` for `tb > 0`; at `tb = 0`, `result = a × b`. ✓
 
-**No overflow:** the largest intermediate value of `ta` is bounded by
-`p × SCALE × q` (it doubles at most `floor(log₂ q)` times before `tb`
-reaches 0). This stays within `long` range provided `|p × q| < 2^63 / SCALE
-≈ 9.2 × 10⁹`.
+**No overflow.**
 
-**Result:** `regR = p×q×SCALE`, which is the correct scaled representation of
-the real value `p × q`. No division by `SCALE` is required. ∎
+- `term1 = T_int × U_int × SCALE`: the intermediate product `T_int × U_int`
+  requires `|T_int × U_int| < 2^63 / SCALE ≈ 9.2 × 10⁹`. This is satisfied
+  when the integer parts of both inputs are less than `~96,038` (since
+  `96,038² ≈ 9.2 × 10⁹`).
+- `term2 = T_int × U_frac`: `T_int < 2^63/SCALE` and `U_frac < SCALE`, so
+  `T_int × U_frac < 2^63`. ✓
+- `term3 = T_frac × U_int`: symmetric to term2. ✓
+- `term4 = floor(T_frac × U_frac / SCALE)`: both fracs `< SCALE`, so
+  `T_frac × U_frac < SCALE² = 10¹⁸ < 2^63`. ✓
+
+**Result:** `regR = floor(p × q × SCALE)`. The error is at most `1` in units
+of `SCALE⁻¹ = 10⁻⁹`, arising solely from the truncation in term4. ∎
+
+**Why the previous single-strip approach was incorrect.**  
+The prior implementation computed `regU ← longDivide(regU, SCALE)` to obtain
+`floor(q)`, then called `russianPeasant(regT, floor(q))`. For non-integer `q`
+this silently discarded `q`'s fractional part. For example, `4 × 2.5` returned
+`8.0` (using `floor(2.5) = 2`) instead of `10.0`. The split-integer algorithm
+eliminates this error by accounting for all four partial products.
 
 ---
 
@@ -369,22 +412,46 @@ Both `shifted` and `bit` are halved each iteration, so after `floor(log2
 
 ### 8. Precision of division in FixedArithmetic vs. double
 
-For integer inputs `p` and `q`, `FixedArithmetic.divide` receives
-`regT = p × SCALE` and strips `SCALE` from the denominator before dividing:
+**Theorem 6.** *`FixedArithmetic.divide` computes `floor(p/q × SCALE)` for
+any rational inputs `p` and `q` (with `q ≠ 0`), with an absolute error in
+the real result of strictly less than `10⁻⁹`.*
+
+**Proof.**  
+Let `A = regT = p × SCALE` and `B = regU = q × SCALE`. The implementation
+applies the two-step identity:
 
 ```
-regU  ←  longDivide(q × SCALE, SCALE)  =  q          (exact, by Theorem 5)
-regR  ←  longDivide(p × SCALE, q)      =  floor( p × SCALE / q )
+floor(A × SCALE / B)  =  floor(A/B) × SCALE  +  floor((A mod B) × SCALE / B)
 ```
 
-which is the exact integer `floor(p / q × 10^9)`. The true value is
-`p/q × 10^9` and the truncation error satisfies:
+**Step 1.** `qInt = longDivide(A, B) = floor(A/B) = floor(p/q)` — exact by
+Theorem 5.
+
+**Step 2.** `rem = A − qInt × B = A mod B` — exact by subtraction (Theorem 3).
+
+**Step 3.** `qFrac = longDivide(rem × SCALE, B) = floor((A mod B) × SCALE / B)`
+— exact by Theorem 5, provided `rem × SCALE` does not overflow. Since
+`rem < B` and for all practical inputs `rem < SCALE`, we have
+`rem × SCALE < SCALE² = 10¹⁸ < 2^63 − 1`. ✓
+
+**Step 4.** `regR = qInt × SCALE + qFrac`.
+
+The true value of `A × SCALE / B` lies in the interval
+`[regR, regR + 1)`, so the truncation error is:
 
 ```
-| error |  <  1   (in units of SCALE^-1 = 10^-9)
+| error |  <  1   (in units of SCALE⁻¹ = 10⁻⁹)
 ```
 
-i.e. the absolute error in the *real* result is strictly less than `10^-9`.
+i.e. the absolute error in the real result is strictly less than `10⁻⁹`. ∎
+
+**Why the previous single-strip approach was incorrect.**  
+The prior implementation computed `regU ← longDivide(regU, SCALE)` to obtain
+`floor(q)`, then called `longDivide(regT, floor(q))`. For non-integer `q`
+this produced two failure modes: when `0 < q < 1` the stripped value was `0`,
+causing a spurious `ArithmeticException`; when `q > 1` with a fractional part
+(e.g. `1.5`) the stripped value was wrong (e.g. `1`), giving an incorrect
+quotient. The two-step algorithm eliminates both failures.
 
 For the same inputs, a `double` computation `(double)p / (double)q` has an
 absolute error bounded by:
@@ -413,9 +480,17 @@ exactly), then `FixedArithmetic.divide(p, q).integerPart()` equals `p/q`
 with zero error.*
 
 **Proof.**  
-`p/q` is an integer, so `floor(p × SCALE / q) = (p/q) × SCALE` exactly.
-Calling `integerPart()` divides by `SCALE` via `longDivide`, which (by
-Theorem 5) returns the exact quotient `p/q` with remainder `0`. ∎
+When `q | p`, the real quotient `p/q` is an integer. By Theorem 6:
+
+```
+qInt  =  floor((p×SCALE) / (q×SCALE))  =  floor(p/q)  =  p/q     (exact)
+rem   =  p×SCALE − (p/q) × q×SCALE     =  0
+qFrac =  floor(0 × SCALE / q×SCALE)    =  0
+regR  =  (p/q) × SCALE + 0             =  (p/q) × SCALE           (exact)
+```
+
+Calling `integerPart()` divides `regR` by `SCALE` via `longDivide`, which (by
+Theorem 5) returns `p/q` exactly with remainder `0`. ∎
 
 The same result for `double` is not guaranteed:
 
@@ -438,7 +513,7 @@ consequence of rounding at each step.
 | Addition of `0.1 + 0.2` | `0.30000000000000004` | `0.3` (exact) |
 | Rounding per operation | Yes — up to ½ ULP | No — integer ops are exact |
 | Accumulated error after n ops | O(n × 2⁻⁵²) | 0 for add/sub; < 10⁻⁹ for div |
-| Result of `(1/3) × 3` | May not equal 1 | Equals 1 exactly (if input integers) |
+| Result of `(1/3) × 3` | May not equal 1 | `0.999999999` (truncation `< 10⁻⁹`); exact `1` when inputs are integers |
 | Representable denominators | Powers of 2 only | All integers up to SCALE |
 | Precision bound (absolute) | Magnitude-dependent | Constant: < 10⁻⁹ |
 
