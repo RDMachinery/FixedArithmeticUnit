@@ -3,6 +3,7 @@
 A Java class that performs **addition, subtraction, multiplication, and division**
 of integer values using **fixed-point representation**, carrying all remainders
 exactly and eliminating the rounding errors inherent to IEEE 754 floating-point.
+For certain common use cases, this class is superior to java.lang.BigDecimal.
 
 Every computation is reduced to integer addition and subtraction on a small set
 of private registers — no `*`, `/`, or `%` operators appear anywhere in the
