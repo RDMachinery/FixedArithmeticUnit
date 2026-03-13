@@ -104,20 +104,25 @@ public class FixedArithmetic {
         regU = other.regA;
         if (regU < 0) { regU = -regU; regS = -regS; }
 
-        // ── Russian-peasant multiply: regR = regT * regU (both non-negative) ─
+        // ── strip SCALE from regU before multiplying ──────────────────────
+        //    Both regT and regU enter as p*SCALE and q*SCALE.
+        //    A naive regT * regU = p*q*SCALE² overflows for |p| or |q| >= 5
+        //    (5e9 * 5e9 = 25e18 > MAX_LONG ≈ 9.2e18).
+        //    Recover raw q = regU / SCALE first; then:
+        //      regT * q = p*SCALE * q = p*q*SCALE — the correct scaled result,
+        //    no post-division by SCALE needed, and the intermediate value
+        //    stays within long range for |p*q| < 9.2e9.
+        regU = longDivide(regU, SCALE);   // regU is now raw integer q
+
+        // ── Russian-peasant multiply: regR = regT * regU ──────────────────
         //    invariant: result so far  = regR + regT * regU
         regR = 0;
         while (regU > 0) {
-            // if regU is odd, add regT to accumulator
             if (isOdd(regU)) regR = regR + regT;
             regT = regT + regT;   // double T  (shift left)
             regU = halve(regU);   // halve  U  (shift right)
         }
-        // regR = |regA| * |other.regA|  (product of two scaled values)
-        // real result = regR / SCALE  (still scaled × SCALE too much)
-
-        // ── divide regR by SCALE via repeated subtraction ─────────────────
-        regR = divideByScale(regR);
+        // regR = p*q*SCALE — already the correct scaled result
 
         // ── reapply sign ───────────────────────────────────────────────────
         if (regS < 0) regR = -regR;
