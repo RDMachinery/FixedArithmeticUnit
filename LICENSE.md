@@ -101,7 +101,7 @@ To obtain a quote and arrange payment, the Licensee must contact the
 Licensor directly:
 
 **Mario Gianota**  
-📧 *(insert contact email address)*
+📧 *(mariogianota@protonmail.com)*
 
 ### 4.4 Overdue Payment
 
