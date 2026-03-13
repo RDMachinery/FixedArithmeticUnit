@@ -1,0 +1,338 @@
+# TradingSystem
+
+A self-contained, single-class Java trading simulator that processes a stream of randomly generated stock prices and executes buy and sell orders using a dual moving-average crossover strategy. All monetary arithmetic — balances, order costs, commissions, and profit/loss — is computed exclusively through [`FixedArithmetic`](FixedArithmetic.java), a fixed-point engine that performs every calculation using integer addition and subtraction only.
+
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Files Required](#files-required)
+- [Quick Start](#quick-start)
+- [Sample Output](#sample-output)
+- [Strategy](#strategy)
+  - [Price Stream](#price-stream)
+  - [Signal Generation](#signal-generation)
+  - [Position Sizing](#position-sizing)
+  - [Stop-Loss](#stop-loss)
+  - [End-of-Stream Close](#end-of-stream-close)
+- [Configuration](#configuration)
+- [How FixedArithmetic Is Used](#how-fixedarithmetic-is-used)
+  - [The float–fixed boundary](#the-floatfixed-boundary)
+  - [Order arithmetic](#order-arithmetic)
+  - [Formatting without floats](#formatting-without-floats)
+- [Class Structure](#class-structure)
+- [Design Notes and Limitations](#design-notes-and-limitations)
+
+---
+
+## Overview
+
+`TradingSystem` is a backtesting-style simulation that demonstrates how `FixedArithmetic` can underpin the financial calculations of a trading engine with no risk of floating-point rounding errors on monetary values.
+
+The system:
+
+1. Generates 200 price ticks using a seeded multiplicative random walk (reproducible across runs).
+2. Maintains a fast and a slow Simple Moving Average (SMA) over a ring buffer.
+3. Fires **BUY** on a golden cross and **SELL** on a death cross or stop-loss breach.
+4. Tracks cash balance, share holdings, commissions paid, realised P&L, and win rate.
+5. Prints a formatted tick-by-tick log followed by a final performance summary.
+
+---
+
+## Files Required
+
+| File | Purpose |
+|---|---|
+| [`FixedArithmetic.java`](FixedArithmetic.java) | Fixed-point arithmetic engine — all monetary math |
+| [`TradingSystem.java`](TradingSystem.java) | Trading strategy and simulation runner |
+
+---
+
+## Quick Start
+
+```bash
+# Compile both files together
+javac FixedArithmetic.java TradingSystem.java
+
+# Run the simulation
+java TradingSystem
+```
+
+Requires **Java 8** or later. No third-party libraries.
+
+---
+
+## Sample Output
+
+```
+╔══════════════════════════════════════════════════════════════════════╗
+║               F I X E D - P O I N T   T R A D I N G                 ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+  Strategy : Dual SMA crossover  (fast=5 / slow=20 ticks)
+  Position : 25% of cash per trade
+  Stop-loss: 5% below entry
+  Capital  : 10000.00
+  Ticks    : 200
+
+────────────────────────────────────────────────────────────────────────
+tick   1  price=  100.00  (warming up)               cash=   10000.00  shares=  0
+tick   2  price=   98.53  (warming up)               cash=   10000.00  shares=  0
+...
+tick  20  price=  103.14  fast= 102.841 slow= 101.203  cash=  10000.00  shares=  0
+tick  21  price=  105.02  fast= 103.659 slow= 101.590  cash=  10000.00  shares=  0
+  >>> BUY   24 shares @ 105.02  cost=2520.48  comm=0.24  cash after=7479.28
+tick  22  price=  104.87  fast= 104.254 slow= 101.921  cash=   7479.28  shares= 24  [LONG]
+...
+  <<< SELL  24 shares @ 108.35  proceeds=2600.40  comm=0.24  P&L=79.68  [MA-CROSS/PROFIT]
+...
+
+────────────────────────────────────────────────────────────────────────
+  FINAL SUMMARY
+────────────────────────────────────────────────────────────────────────
+  Starting capital   : 10000.00
+  Final equity       : 10184.32
+  Total return       : 184.32  (1.84%)
+  Realised P&L       : 184.32
+  Total commissions  : 3.84
+  Completed trades   : 8
+  Winning trades     : 5 / 8
+  Win rate           : 62.50%
+────────────────────────────────────────────────────────────────────────
+```
+
+*(Exact figures depend on the random seed and parameters; defaults use `RANDOM_SEED = 42`.)*
+
+---
+
+## Strategy
+
+### Price Stream
+
+Prices are generated by a **multiplicative random walk**:
+
+```
+price[t+1] = price[t] × (1 + ε)
+```
+
+where `ε` is an approximation of `N(0, σ)` built by summing 12 uniform `[−0.5, 0.5]` random variables (central limit theorem). This avoids importing `java.lang.Math.exp` or a statistics library while still producing a realistic price series. The generator is seeded (`RANDOM_SEED = 42`) so every run produces the same prices by default.
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `NUM_TICKS` | 200 | Total price ticks simulated |
+| `INITIAL_PRICE` | 100.0 | Starting price |
+| `PRICE_VOLATILITY` | 0.015 | Per-tick standard deviation as a fraction of price |
+| `RANDOM_SEED` | 42 | Seed for reproducibility |
+
+---
+
+### Signal Generation
+
+Two Simple Moving Averages run concurrently over ring buffers:
+
+| MA | Window | Role |
+|---|---|---|
+| Fast SMA | `FAST_PERIOD` = 5 ticks | Responsive to recent price movement |
+| Slow SMA | `SLOW_PERIOD` = 20 ticks | Represents the longer-term trend |
+
+The signal fires once both MAs have warmed up (i.e. after tick 20):
+
+```
+Golden cross  →  fastMA crosses above slowMA  →  BUY
+Death cross   →  fastMA crosses below slowMA  →  SELL
+```
+
+A crossover is detected by comparing the sign of `fastMA − slowMA` between the current and previous tick. The system holds at most one long position at a time — no short selling.
+
+---
+
+### Position Sizing
+
+Each BUY order deploys a fixed fraction of available cash:
+
+```
+budget = cash × POSITION_SIZE_PCT
+shares = floor(budget ÷ currentPrice)      ← whole shares only
+cost   = shares × currentPrice
+```
+
+Only whole shares are bought. If `budget ÷ price < 1`, the order is skipped and logged.
+
+---
+
+### Stop-Loss
+
+On every tick while in a position, the current price is compared against a stop level:
+
+```
+stopLevel = entryPrice × (1 − STOP_LOSS_PCT)
+```
+
+If `currentPrice < stopLevel`, an immediate SELL is executed before the MA signal is evaluated, and the sell reason is tagged `STOP-LOSS` in the log.
+
+---
+
+### End-of-Stream Close
+
+If the simulation ends with an open position, the final tick's price is used to close it. This trade is tagged `END-OF-STREAM` and counts toward the P&L.
+
+---
+
+## Configuration
+
+All parameters are `private static final` constants at the top of `TradingSystem.java`. Change them to explore different strategies.
+
+```java
+// Strategy
+private static final int    FAST_PERIOD        = 5;
+private static final int    SLOW_PERIOD        = 20;
+private static final String POSITION_SIZE_PCT  = "0.25";  // 25% of cash per trade
+private static final String STOP_LOSS_PCT      = "0.05";  // 5% stop-loss
+private static final String COMMISSION_PER_SHARE = "0.01";
+
+// Price stream
+private static final int    NUM_TICKS          = 200;
+private static final double INITIAL_PRICE      = 100.0;
+private static final double PRICE_VOLATILITY   = 0.015;
+private static final long   RANDOM_SEED        = 42L;
+
+// Account
+private static final String INITIAL_CASH       = "10000.00";
+```
+
+> **Note:** `POSITION_SIZE_PCT`, `STOP_LOSS_PCT`, `COMMISSION_PER_SHARE`, and `INITIAL_CASH` are all strings so they can be parsed directly by `FixedArithmetic.of(String)` with no floating-point intermediary.
+
+---
+
+## How FixedArithmetic Is Used
+
+### The float–fixed boundary
+
+The price stream is generated as `double[]` (floating-point is unavoidable for the random walk). Prices are converted into `FixedArithmetic` at a single controlled entry point — `priceToFixed()` — before any financial calculation takes place:
+
+```java
+private static FixedArithmetic priceToFixed(double price) {
+    long cents10k = Math.round(price * 10_000.0);   // round to 4 decimal places
+    long intPart  = cents10k / 10_000;
+    long fracPart = cents10k % 10_000;
+    String s = intPart + "." + pad4(fracPart);       // e.g. "103.1400"
+    return FixedArithmetic.of(s);                    // parse with fixed-point engine
+}
+```
+
+Once inside the system, no `double` or `float` value is ever involved in a financial calculation.
+
+---
+
+### Order arithmetic
+
+Every financial calculation is expressed as a chain of `FixedArithmetic` operations:
+
+**BUY order**
+
+```java
+FixedArithmetic budget     = cash.multiply(FixedArithmetic.of(POSITION_SIZE_PCT));
+long           shares      = budget.divide(price).integerPart();   // floor to whole shares
+FixedArithmetic cost       = price.multiply(FixedArithmetic.of(shares));
+FixedArithmetic commission = FixedArithmetic.of(COMMISSION_PER_SHARE)
+                                            .multiply(FixedArithmetic.of(shares));
+FixedArithmetic total      = cost.add(commission);
+cash = cash.subtract(total);
+```
+
+**SELL order**
+
+```java
+FixedArithmetic proceeds   = price.multiply(sharesHeld);
+FixedArithmetic commission = FixedArithmetic.of(COMMISSION_PER_SHARE).multiply(sharesHeld);
+FixedArithmetic net        = proceeds.subtract(commission);
+FixedArithmetic entryCost  = entryPrice.multiply(sharesHeld);
+FixedArithmetic tradePnL   = net.subtract(entryCost);
+cash        = cash.add(net);
+realisedPnL = realisedPnL.add(tradePnL);
+```
+
+**Stop-loss level**
+
+```java
+FixedArithmetic stopLevel = entryPrice.multiply(
+    FixedArithmetic.of("1").subtract(FixedArithmetic.of(STOP_LOSS_PCT)));
+```
+
+**Total return percentage**
+
+```java
+FixedArithmetic totalReturn = finalEquity.subtract(FixedArithmetic.of(INITIAL_CASH));
+FixedArithmetic returnPct   = totalReturn
+    .divide(FixedArithmetic.of(INITIAL_CASH))
+    .multiply(FixedArithmetic.of(100));
+```
+
+---
+
+### Formatting without floats
+
+The `fmt()` helper renders a `FixedArithmetic` value as a 2-decimal-place currency string using only `integerPart()`, `remainder()`, and `rawScaled()` — no float conversion:
+
+```java
+private static String fmt(FixedArithmetic v) {
+    boolean neg  = v.rawScaled() < 0;
+    long    ip   = Math.abs(v.integerPart());
+    long    rem  = v.remainder();             // always non-negative, 9dp
+    long    dp2  = rem / 10_000_000L;         // extract 2dp from 9dp
+    long    dp3  = (rem / 1_000_000L) % 10;  // 3rd decimal for rounding
+    if (dp3 >= 5) dp2++;
+    if (dp2 >= 100) { ip++; dp2 = 0; }
+    String cents = dp2 < 10 ? "0" + dp2 : Long.toString(dp2);
+    return (neg ? "-" : "") + ip + "." + cents;
+}
+```
+
+> **`rawScaled()` for sign detection:** `FixedArithmetic.remainder()` always returns a non-negative value. For values in `(−1, 0)`, `integerPart()` also returns 0. Checking `rawScaled() < 0` is therefore the only reliable way to detect a negative value in this range — a pattern used throughout both `TradingSystem` and `FixedTrigonometry`.
+
+---
+
+## Class Structure
+
+```
+TradingSystem
+│
+├── Constants
+│   ├── Strategy parameters     (FAST_PERIOD, SLOW_PERIOD, POSITION_SIZE_PCT, …)
+│   └── Simulation parameters   (NUM_TICKS, INITIAL_PRICE, RANDOM_SEED, …)
+│
+├── State (FixedArithmetic)
+│   ├── cash                    Current cash balance
+│   ├── sharesHeld              Shares currently long
+│   ├── entryPrice              Price of the open position
+│   ├── realisedPnL             Cumulative closed-trade P&L
+│   └── totalCommissions        Cumulative commissions paid
+│
+├── generatePrices()            Produces the double[] price stream
+├── pushAndAverage()            Ring-buffer SMA helper
+├── onTick()                    Tick processor: MA update → stop-loss → signal → log
+├── executeBuy()                Places a BUY order, updates state
+├── executeSell()               Places a SELL order, updates state and P&L
+├── run()                       Orchestrates the simulation, prints results
+│
+└── Helpers
+    ├── priceToFixed()          double → FixedArithmetic conversion (the only bridge)
+    ├── fmt()                   FixedArithmetic → 2dp currency string
+    ├── isLessThan()            Signed comparison via rawScaled()
+    └── pad4()                  Zero-pads a long to 4 digits
+```
+
+---
+
+## Design Notes and Limitations
+
+**Why `FixedArithmetic` for money?** Floating-point types (`double`, `float`) cannot represent most decimal fractions exactly. Repeated addition of prices or commissions accumulates rounding errors that are invisible tick by tick but can compound over hundreds of trades. `FixedArithmetic` uses integer arithmetic internally, so `$0.01 × 24 shares` is always exactly `$0.24` with no rounding drift.
+
+**MA computation uses `double`.** The moving average values are compared only in sign (`fastMA − slowMA > 0`?) to detect crossovers. A tiny rounding error in the MA values does not affect any monetary calculation — it could at most shift a crossover signal by one tick. This trade-off keeps the ring-buffer arithmetic simple.
+
+**Whole shares only.** `budget.divide(price).integerPart()` truncates toward zero, so no fractional shares are ever held. Cash not used by a trade stays in the account and is available for the next signal.
+
+**Single position, long only.** The system holds at most one position at a time and does not short-sell. A BUY signal while already in a position is ignored.
+
+**`FixedArithmetic.divide()` overflow constraint.** The internal divide algorithm computes `remainder × SCALE` as a plain `long`. This overflows when the dividend's real value exceeds approximately 9.22. All monetary values here (prices ~100, cash ~10,000) are divided by other monetary values, so the quotients are small and well within safe bounds. See the `FixedArithmetic` source for a full discussion.
