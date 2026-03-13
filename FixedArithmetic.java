@@ -22,8 +22,6 @@
  *   add / subtract – trivial scaled-integer arithmetic (one add/sub).
  *   multiply       – Russian-peasant / binary doubling built from adds only.
  *   divide         – long-division-by-repeated-subtraction, digit by digit.
- *
- * @author Mario Gianota (mariogianota@protonmail.com) Friday 13 March, 2026
  */
 public class FixedArithmetic {
 
@@ -150,11 +148,14 @@ public class FixedArithmetic {
         regU = other.regA;
         if (regU < 0) { regU = -regU; regS = -regS; }
 
-        // ── compute dividend = regT * SCALE  (shift numerator for precision) ─
-        //    multiply by SCALE using repeated addition
-        regT = multiplyByScale(regT);
+        // ── recover the raw (unscaled) denominator ────────────────────────
+        //    regU is q×SCALE; we need plain q so that:
+        //      result_scaled = (p×SCALE) / q  =  regT / (regU/SCALE)
+        //    Multiplying regT by SCALE instead would produce p×SCALE² which
+        //    overflows a long for any |p| >= 10 (10 × 10^18 > MAX_LONG).
+        regU = longDivide(regU, SCALE);
 
-        // ── long division: regT / regU  via repeated subtraction ──────────
+        // ── long division: (p×SCALE) / q  via repeated subtraction ───────
         regR = longDivide(regT, regU);
 
         // ── reapply sign ───────────────────────────────────────────────────
