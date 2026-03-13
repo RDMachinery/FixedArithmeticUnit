@@ -373,7 +373,7 @@ All results agree with `java.lang.Math` to within approximately **±2 ULP** at 9
 
 The internal constants π, π/2, π/4, and 2π are stored with all 9 available decimal digits. Any residual error in the final digit arises from accumulated rounding in fixed-point division, not from series truncation.
 
-> **Note:** Because `FixedArithmetic` uses truncating (floor-toward-zero) division rather than rounding, the last digit of some results may differ from a correctly-rounded result by 1 unit.
+> **Note:** Because `FixedArithmetic` uses truncating (floor-toward-zero) division rather than rounding, the last digit of some results may differ from a correctly-rounded result by 1 unit. Also note that `FixedArithmetic.remainder()` always returns a **non-negative** value (it operates on the absolute value of the internal register), so sign detection of fractional values between −1 and 0 must use `rawScaled() < 0` rather than inspecting `integerPart()` and `remainder()` separately.
 
 ---
 

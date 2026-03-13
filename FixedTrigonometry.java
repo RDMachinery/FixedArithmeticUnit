@@ -484,21 +484,22 @@ public class FixedTrigonometry {
 
     /** True if a > b. */
     private static boolean greaterThan(FixedArithmetic a, FixedArithmetic b) {
-        // sign of (a - b)
-        FixedArithmetic diff = a.subtract(b);
-        return diff.integerPart() > 0
-            || (diff.integerPart() == 0 && diff.remainder() > 0);
+        // rawScaled() is the unambiguous signed integer backing both values;
+        // a > b iff a.rawScaled() > b.rawScaled().
+        return a.rawScaled() > b.rawScaled();
     }
 
     /** True if x < 0. */
     private static boolean isNegative(FixedArithmetic x) {
-        return x.integerPart() < 0
-            || (x.integerPart() == 0 && x.remainder() < 0);
+        // remainder() always returns a non-negative value (it works on abs),
+        // so integerPart()/remainder() cannot distinguish -0.5 from +0.5.
+        // rawScaled() is the single signed source of truth.
+        return x.rawScaled() < 0;
     }
 
     /** True if x == 0 (to within fixed-point representation). */
     private static boolean isZero(FixedArithmetic x) {
-        return x.integerPart() == 0 && x.remainder() == 0;
+        return x.rawScaled() == 0;
     }
 
     /** True if x == 1 exactly. */
