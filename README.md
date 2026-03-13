@@ -1,4 +1,4 @@
-# FixedArithmetic
+# FixedArithmetic Version 1.0 Final
 
 A Java class that performs **addition, subtraction, multiplication, and division**
 of integer values using **fixed-point representation**, carrying all remainders
