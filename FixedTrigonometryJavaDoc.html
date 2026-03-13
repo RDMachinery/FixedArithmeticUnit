@@ -1,0 +1,135 @@
+<!DOCTYPE HTML>
+<html lang="en">
+<head>
+<title>FixedTrigonometry Javadoc</title>
+<meta charset="utf-8">
+<style>
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; max-width: 900px; margin: auto; padding: 20px; }
+    h1, h2, h3 { color: #2c3e50; border-bottom: 1px solid #eee; padding-bottom: 10px; }
+    code { background-color: #f4f4f4; padding: 2px 5px; border-radius: 3px; font-family: 'Consolas', 'Courier New', monospace; }
+    pre { background-color: #f4f4f4; padding: 15px; border-left: 5px solid #3498db; overflow-x: auto; border-radius: 5px; }
+    .method { margin-bottom: 40px; border: 1px solid #ddd; padding: 20px; border-radius: 8px; }
+    .method-name { font-size: 1.2em; font-weight: bold; color: #d35400; }
+    .tag { font-weight: bold; color: #7f8c8d; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { text-align: left; padding: 10px; border-bottom: 1px solid #eee; }
+    th { background-color: #f9f9f9; }
+</style>
+</head>
+<body>
+
+<h1>Class FixedTrigonometry</h1>
+<p><strong>Package:</strong> default</p>
+<p><strong>Author:</strong> Mario Gianota</p>
+<hr>
+
+<h2>Overview</h2>
+<p>
+    The <code>FixedTrigonometry</code> class provides a standard suite of trigonometric functions computed entirely 
+    through <code>FixedArithmetic</code> operations. It avoids all native <code>Math.*</code> calls, 
+    floating-point arithmetic, and hardware-specific trig instructions to ensure bit-for-bit determinism across all platforms.
+</p>
+<p>
+    The implementation uses <strong>Taylor series expansions</strong> for sine and cosine, combined with quadrant-based 
+    range reduction to maintain high precision and fast convergence.
+</p>
+
+<h3>Example Usage</h3>
+<pre>
+// Define an angle in radians (e.g., PI / 4)
+FixedArithmetic angle = FixedTrigonometry.PI.divide(FixedArithmetic.of(4));
+
+// Compute sine and cosine
+FixedArithmetic sineVal = FixedTrigonometry.sin(angle);
+FixedArithmetic cosVal  = FixedTrigonometry.cos(angle);
+
+// Compute inverse tangent (atan2) for coordinates (1, 1)
+FixedArithmetic y = FixedArithmetic.of(1);
+FixedArithmetic x = FixedArithmetic.of(1);
+FixedArithmetic theta = FixedTrigonometry.atan2(y, x);
+
+System.out.println("Sin(PI/4): " + sineVal);
+System.out.println("Atan2(1,1): " + theta);
+</pre>
+
+<hr>
+
+<h2>Field Summary</h2>
+<table>
+    <tr><th>Type</th><th>Field</th><th>Description</th></tr>
+    <tr>
+        <td><code>static FixedArithmetic</code></td>
+        <td><code>PI</code></td>
+        <td>The mathematical constant π, represented with 9 decimal places of precision.</td>
+    </tr>
+    <tr>
+        <td><code>static FixedArithmetic</code></td>
+        <td><code>HALF_PI</code></td>
+        <td>The value of π/2, used extensively in range reduction and inverse functions.</td>
+    </tr>
+    <tr>
+        <td><code>static FixedArithmetic</code></td>
+        <td><code>TWO_PI</code></td>
+        <td>The value of 2π, representing a full circular rotation.</td>
+    </tr>
+</table>
+
+<hr>
+
+<h2>Method Summary</h2>
+
+<div class="method">
+    <div class="method-name">public static FixedArithmetic sin(FixedArithmetic x)</div>
+    <p>
+        Computes the sine of an angle <code>x</code> (in radians). Uses range reduction to map the input to 
+        [-π/4, π/4] before applying the Taylor series expansion.
+    </p>
+</div>
+
+<div class="method">
+    <div class="method-name">public static FixedArithmetic cos(FixedArithmetic x)</div>
+    <p>
+        Computes the cosine of an angle <code>x</code> (in radians). Internally leverages the sine 
+        implementation with a phase shift (<code>sin(x + π/2)</code>) or identities for efficiency.
+    </p>
+</div>
+
+<div class="method">
+    <div class="method-name">public static FixedArithmetic tan(FixedArithmetic x)</div>
+    <p>
+        Returns the tangent of an angle <code>x</code>. Computed as <code>sin(x) / cos(x)</code> 
+        using deterministic fixed-point division.
+    </p>
+</div>
+
+<div class="method">
+    <div class="method-name">public static FixedArithmetic asin(FixedArithmetic x)</div>
+    <p>
+        Computes the arcsine (inverse sine) of <code>x</code>. The result is in the range [-π/2, π/2] radians.
+    </p>
+</div>
+
+<div class="method">
+    <div class="method-name">public static FixedArithmetic acos(FixedArithmetic x)</div>
+    <p>
+        Computes the arccosine (inverse cosine) of <code>x</code>. The result is in the range [0, π] radians.
+    </p>
+</div>
+
+<div class="method">
+    <div class="method-name">public static FixedArithmetic atan(FixedArithmetic x)</div>
+    <p>
+        Computes the arctangent (inverse tangent) of <code>x</code>. The result is in the range (-π/2, π/2) radians.
+    </p>
+</div>
+
+<div class="method">
+    <div class="method-name">public static FixedArithmetic atan2(FixedArithmetic y, FixedArithmetic x)</div>
+    <p>
+        Computes the two-argument arctangent of <code>y</code> and <code>x</code>. This method handles 
+        quadrant detection and prevents division-by-zero errors when calculating the angle of a vector.
+    </p>
+</div>
+
+</body>
+</html>
