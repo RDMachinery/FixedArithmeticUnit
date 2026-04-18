@@ -1,4 +1,4 @@
-# FixedArithmetic
+# FixedArithmeticUnit - Let your fractions die and calculate the lie
 
 A Java class that performs **addition, subtraction, multiplication, and division**
 of integer values using **fixed-point representation**, carrying all remainders
